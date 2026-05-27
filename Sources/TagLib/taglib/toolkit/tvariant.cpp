@@ -34,6 +34,9 @@
 #include "tbytevectorlist.h"
 #include "fileref.h"
 #include "tpropertymap.h"
+#include "aifffile.h"
+#include "textidentificationframe.h"
+#include "commentsframe.h"
 
 #include <cstdlib>
 #include <cctype>
@@ -378,6 +381,57 @@ static void ttReplaceIntProperty(TagLib::PropertyMap &properties, const char *ke
 static void ttReplaceIntPropertyWithAlias(TagLib::PropertyMap &properties, const char *primaryKey, const char *aliasKey, int hasValue, int value) {
   ttReplaceIntProperty(properties, primaryKey, hasValue, value);
   ttReplaceIntProperty(properties, aliasKey, hasValue, value);
+}
+
+static void ttSetID3TextFrame(TagLib::ID3v2::Tag *tag, const char *frameID, const char *value) {
+  const TagLib::ByteVector id(frameID);
+  tag->removeFrames(id);
+  if(value == nullptr || value[0] == '\0') { return; }
+
+  auto *frame = new TagLib::ID3v2::TextIdentificationFrame(id, TagLib::String::UTF8);
+  frame->setText(ttString(value));
+  tag->addFrame(frame);
+}
+
+static void ttSetID3IntFrame(TagLib::ID3v2::Tag *tag, const char *frameID, int hasValue, int value) {
+  const TagLib::ByteVector id(frameID);
+  tag->removeFrames(id);
+  if(!hasValue) { return; }
+
+  const std::string text = std::to_string(value);
+  ttSetID3TextFrame(tag, frameID, text.c_str());
+}
+
+static void ttSetID3CommentFrame(TagLib::ID3v2::Tag *tag, const char *value) {
+  tag->removeFrames(TagLib::ByteVector("COMM"));
+  if(value == nullptr || value[0] == '\0') { return; }
+
+  auto *frame = new TagLib::ID3v2::CommentsFrame(TagLib::String::UTF8);
+  frame->setLanguage(TagLib::ByteVector("eng"));
+  frame->setDescription(TagLib::String("", TagLib::String::UTF8));
+  frame->setText(ttString(value));
+  tag->addFrame(frame);
+}
+
+static int ttWriteAIFFTags(const char *path, const TTTagLibTags *tags, char **error) {
+  TagLib::RIFF::AIFF::File file(path, true);
+  if(!file.isValid()) { ttSetError(error, "TagLib could not open the AIFF file."); return 0; }
+
+  TagLib::ID3v2::Tag *tag = file.tag();
+  if(tag == nullptr) { ttSetError(error, "TagLib could not create an AIFF ID3 tag."); return 0; }
+
+  ttSetID3TextFrame(tag, "TIT2", tags->title);
+  ttSetID3TextFrame(tag, "TPE1", tags->artist);
+  ttSetID3TextFrame(tag, "TALB", tags->album);
+  ttSetID3TextFrame(tag, "TPE2", tags->albumArtist);
+  ttSetID3TextFrame(tag, "TCON", tags->genre);
+  ttSetID3IntFrame(tag, "TDRC", tags->hasYear, tags->year);
+  ttSetID3IntFrame(tag, "TRCK", tags->hasTrackNumber, tags->trackNumber);
+  ttSetID3IntFrame(tag, "TBPM", tags->hasBPM, tags->bpm);
+  ttSetID3CommentFrame(tag, tags->comment);
+
+  if(!file.save(TagLib::ID3v2::v3)) { ttSetError(error, "TagLib failed to save AIFF metadata."); return 0; }
+  return 1;
 }
 
 static bool ttHasExtension(const char *path, const char *extension) {
