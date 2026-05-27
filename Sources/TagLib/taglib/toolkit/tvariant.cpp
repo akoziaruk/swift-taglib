@@ -36,6 +36,7 @@
 #include "tpropertymap.h"
 
 #include <cstdlib>
+#include <cctype>
 #include <cstring>
 #include <string>
 
@@ -335,12 +336,23 @@ static char *ttProperty(const TagLib::PropertyMap &properties, const char *key) 
   return ttDuplicateString(values.front());
 }
 
+static char *ttPropertyWithFallback(const TagLib::PropertyMap &properties, const char *primaryKey, const char *fallbackKey) {
+  char *value = ttProperty(properties, primaryKey);
+  if(value != nullptr) { return value; }
+  return ttProperty(properties, fallbackKey);
+}
+
 static int ttIntProperty(const TagLib::PropertyMap &properties, const char *key, int *value) {
   char *text = ttProperty(properties, key);
   if(text == nullptr) { return 0; }
   *value = std::atoi(text);
   std::free(text);
   return *value > 0;
+}
+
+static int ttIntPropertyWithFallback(const TagLib::PropertyMap &properties, const char *primaryKey, const char *fallbackKey, int *value) {
+  if(ttIntProperty(properties, primaryKey, value)) { return 1; }
+  return ttIntProperty(properties, fallbackKey, value);
 }
 
 static void ttReplaceProperty(TagLib::PropertyMap &properties, const char *key, const char *value) {
@@ -361,6 +373,28 @@ static void ttReplaceIntProperty(TagLib::PropertyMap &properties, const char *ke
   else {
     properties.erase(ttString(key));
   }
+}
+
+static void ttReplaceIntPropertyWithAlias(TagLib::PropertyMap &properties, const char *primaryKey, const char *aliasKey, int hasValue, int value) {
+  ttReplaceIntProperty(properties, primaryKey, hasValue, value);
+  ttReplaceIntProperty(properties, aliasKey, hasValue, value);
+}
+
+static bool ttHasExtension(const char *path, const char *extension) {
+  if(path == nullptr || extension == nullptr) { return false; }
+
+  const char *dot = std::strrchr(path, '.');
+  if(dot == nullptr) { return false; }
+  ++dot;
+
+  while(*dot != '\0' && *extension != '\0') {
+    const unsigned char lhs = static_cast<unsigned char>(*dot);
+    const unsigned char rhs = static_cast<unsigned char>(*extension);
+    if(std::tolower(lhs) != std::tolower(rhs)) { return false; }
+    ++dot;
+    ++extension;
+  }
+  return *dot == '\0' && *extension == '\0';
 }
 
 static const char *ttMimeType(const unsigned char *data, int size) {
